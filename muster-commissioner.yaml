@@ -1,0 +1,65 @@
+# muster ruleset_strategy commissioner config — authored via the local Commissioner panel,
+# then driven by the CUSTOM MusterCommissioner subclass (coworld_pkg/commissioner/).
+#
+# STRUCTURE (Maxwell 2026-06-24): a single flat ladder — Qualifiers staging gate feeds ONE
+# Competition division. No Bronze/Silver/Gold tiers (this game doesn't need them): a policy
+# that passes the qualifier load-check enters Competition and stays there.
+#
+# SEATING is handled by the custom commissioner (NOT these defaults):
+#   • Qualifiers (staging) → the tiny `qualifier` variant, 1 real seat (self_play), a fast
+#     connect/build/run/score load-check that can't hit the 300s episode cap.
+#   • Competition → the full 19-arena world, seated with EVERY real champion the division
+#     has (min 2 to start, up to MAX_COMPETITION_SEATS=64 — the reliable hosted-pod ceiling,
+#     NOT the ~96-army world size); the engine scripted-fills every remaining island-army.
+#
+# SCORING = PINBALL HIGH SCORE: a seat's round score IS its GLORY (round_score: mean — with
+# 1 episode/round that's that round's glory). The leaderboard aggregation across rounds is the
+# platform's EWMA (half_life_hours below is NOT read by it; documented for intent).
+schedule_interval_minutes: 15
+scoring:
+  round_score: mean
+  leaderboard: { half_life_hours: 720 }
+defaults:
+  seating: baseline_window
+  fill_seats: fill_from_divisions
+  # No duplicate-fill: the custom MusterCommissioner builds competition episodes by hand
+  # (it routes to the largest head-to-head rung it can fill with DISTINCT champions and
+  # windows the field across episodes), so it never needs to clone a champion into a seat.
+  # These defaults only govern the framework's own scheduling for the qualifier path.
+  duplicate_after_fill: false
+  min_entries_to_start: 2
+  stage:
+    label: Round
+    episodes: 1
+    min_episodes_per_entrant: 1
+
+divisions:
+  qualifiers:
+    name: Qualifiers
+    level: -99
+    match: { name: Qualifiers, type: staging }
+    entrants: qualifying
+    min_entries_to_start: 1
+    stages:
+      # LOAD-CHECK only (the custom commissioner runs this on the tiny `qualifier` variant,
+      # 1 real seat). It proves the policy connects, runs, and scores > 0, then promotes it
+      # straight into Competition (no tiers).
+      - id: crash_check
+        schedule: { label: Qualifier, self_play: true, attempts: 2, min_episodes_per_entrant: 2 }
+        on_episode_complete:
+          - id: qualified
+            criteria: { completed_episodes_gt: 0 }
+            actions: [{ type: update_membership, division: competition, status: competing, substatus: champion }]
+          - id: disqualified
+            criteria: otherwise
+            actions: [{ type: update_membership, status: disqualified, substatus: inactive }]
+
+  # The ONE competition division — every qualified champion competes here head-to-head in the
+  # full 19-arena world (custom commissioner seats all real champions, engine fills the rest).
+  # No promotion/relegation: there is nowhere to go. Ranking is by glory (mean_round_score).
+  competition:
+    name: Competition
+    level: 1
+    match: { name: Competition, type: competition }
+    entrants: champions
+    min_entries_to_start: 2
