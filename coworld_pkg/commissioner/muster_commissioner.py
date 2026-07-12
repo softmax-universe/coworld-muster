@@ -40,11 +40,19 @@ a custom commissioner CAN. This subclass overrides ONLY the per-round seating:
     head-to-head. The world is still 96 island-armies; seats beyond the 64 real are
     always scripted.
 
-It ALSO overrides `rank_division` to make the division standing an ALL-TIME HIGH (each
-policy's best round score ever) rather than the base's decaying half-life-weighted mean —
-see `rank_division` below. The platform calls `rank_division` at round completion and
-serves exactly what it returns as the standing, so this IS the leaderboard a pinball-style
-high-score game wants: glory is a trophy you keep, not a number that bleeds.
+SCORING (Maxwell 2026-07-11) — two cleanly-separated channels:
+  • ROUND result = each policy's BEST episode among THIS round's own episodes. A competition round
+    runs COMPETITION_EPISODES_PER_ROUND (=3) episodes of the shared world (each a fresh board), and
+    `_round_scores_by_policy` takes the MAX (not the base's mean). A round is a self-contained
+    best-of-N on its OWN episodes — so the Rankings/Winners tabs show the round's real best episode.
+  • STANDING = ALL-TIME HIGH: `rank_division` ranks each policy by its best ROUND score ever (a
+    pinball high score you keep), not the base's decaying half-life mean. The platform calls
+    `rank_division` once at round completion and persists exactly what it returns to
+    division.leaderboard_config (v2/pipeline.py ranks-and-persists; v2/leaderboards.py serves it, no
+    recompute). So glory is a trophy you keep, not a number that bleeds.
+  We DO NOT overwrite the per-round result with a cross-round peak anymore (that old hack broke
+  round isolation — every round row got stamped with the all-time peak, so a round's displayed
+  score didn't match its own episodes). Round = best-of-its-own-episodes; standing = best-round-ever.
 
 Everything else — promotion/relegation, membership events — is inherited verbatim from
 RulesetStrategyCommissioner and still driven by muster-commissioner.yaml. Selected via
@@ -77,6 +85,11 @@ MIN_COMPETITION_SEATS = 2
 # 2026-06-24: reliable to 64, flaky at 77+). Up to this many real champions play in ONE shared
 # world; beyond it the round windows into multiple full episodes (rare — the league is far below).
 MAX_COMPETITION_SEATS = 64
+# EPISODES PER COMPETITION ROUND (Maxwell 2026-07-11): run the shared world N times per round and
+# score the round as each policy's BEST (max) episode — so a round is a self-contained "best of N"
+# on its OWN episodes, NOT a cross-round peak. N=3 gives a high-variance reach-and-hold policy three
+# fresh boards per round to catch a good one, while keeping each round isolated + honest.
+COMPETITION_EPISODES_PER_ROUND = 3
 
 # ── ONE SHARED WORLD THAT FILLS AS PLAYERS JOIN (Maxwell 2026-07-09: "as more players enter, the
 # islands fill in … some partially full, some fully full") ─────────────────────────────────────
@@ -147,10 +160,13 @@ class MusterCommissioner(RulesetStrategyCommissioner):
 
         episodes: list[CommissionerEpisodeRequest] = []
         if num_real <= MAX_COMPETITION_SEATS:
-            # The common case: EVERY champion in ONE shared world.
-            episodes.append(CommissionerEpisodeRequest(
-                request_id="competition-1", variant_id=variant_id,
-                policy_version_ids=champions))
+            # The common case: EVERY champion in ONE shared world — run it N times (best-of-N round).
+            # Same roster each episode; the engine's per-episode seed differs so each is a fresh board.
+            # _round_scores_by_policy takes the MAX across these, so the round = the best of its own N.
+            for i in range(COMPETITION_EPISODES_PER_ROUND):
+                episodes.append(CommissionerEpisodeRequest(
+                    request_id=f"competition-{i + 1}", variant_id=variant_id,
+                    policy_version_ids=champions))
         else:
             # Field exceeds the hosted-pod ceiling — window into full episodes, evenly spread.
             seats = MAX_COMPETITION_SEATS
@@ -166,45 +182,35 @@ class MusterCommissioner(RulesetStrategyCommissioner):
                 start += size
         return CommissionerScheduleEpisodes(episodes=episodes)
 
-    # ── ALL-TIME-HIGH at ROUND COMPLETION (the standing the platform ACTUALLY serves) ──────────
-    # VERIFIED live 2026-07-09 (the hard way): the division standing the Observatory shows is written
-    # at ROUND COMPLETION from RoundComplete → the backend persists it to division.leaderboard_config
-    # (app_backend pipeline.py L2464, from `complete.leaderboards`, which its compat shim derives from
-    # RoundComplete.results when an older commissioner sends only `results`). That per-round board
-    # OVERWRITES the peak board rank_division writes on the separate scheduling-refresh path — so
-    # overriding rank_division ALONE left the live board showing the latest round's scores, not peaks
-    # (musterd's real 10.5M peak displayed as its 0.66M latest round). To make the standing a pinball
-    # HIGH SCORE we must ALSO make the round-completion `results` carry each policy's PEAK.
-    #
-    # Implementation: let the base build the RoundComplete (handles per-round scoring, memberships,
-    # the on_round_completed hook), then REPLACE each ranking's score with that policy's MAX over the
-    # full history the platform ships us — round_start.recent_results (the last ≤50 completed rounds,
-    # pipeline.py L2659) PLUS this round's own just-computed scores — and re-rank. The compat shim then
-    # derives a PEAK leaderboards from these results. recent_results carries no result_metadata, so we
-    # peak on raw score across all Muster rounds (single scoring scheme — no scale-mixing risk here).
-    def complete_round_for_round_start(self, round_start, episode_results,
-                                       scheduled_episodes=None, failed_episodes=None):
-        complete = super().complete_round_for_round_start(
-            round_start, episode_results, scheduled_episodes, failed_episodes)
-        # Peak per policy over prior history (recent_results) + this round's own results.
-        peak: dict = {}
-        def _bump(pid, score):
-            if pid is not None and score is not None and (pid not in peak or score > peak[pid]):
-                peak[pid] = score
-        for r in getattr(round_start, "recent_results", None) or []:
-            _bump(r.policy_version_id, r.score)
-        for div_ranking in complete.results:
-            for entry in div_ranking.rankings:
-                _bump(entry.policy_version_id, entry.score)
-        # Rewrite each ranking to its peak, then re-rank within each division (stable tie-break).
-        for div_ranking in complete.results:
-            for entry in div_ranking.rankings:
-                if entry.policy_version_id in peak:
-                    entry.score = peak[entry.policy_version_id]
-            div_ranking.rankings.sort(key=lambda e: (-e.score, str(e.player_id or ""), str(e.policy_version_id)))
-            for i, entry in enumerate(div_ranking.rankings, start=1):
-                entry.rank = i
-        return complete
+    # ── ROUND SCORE = BEST (MAX) EPISODE THIS ROUND (Maxwell 2026-07-11) ───────────────────────
+    # A round is an ISOLATED unit: it runs COMPETITION_EPISODES_PER_ROUND episodes of the shared
+    # world (each a fresh board), and the round score is each policy's BEST episode among THIS
+    # round's own episodes — max, not the base's mean. This is legitimate best-of-N (max over a
+    # round's own samples), NOT a cross-round peak. Mirrors the base's mean impl but takes max, so
+    # it reuses complete_round's ranking/metadata assembly unchanged. `_score_lists_by_policy`
+    # collects each policy's per-episode scores (dropping the 0s of teams that lost to a negative,
+    # same as the base) — we take the max of that list.
+    def _round_scores_by_policy(self, entries, episode_results):
+        from commissioners.common.utils import _score_lists_by_policy
+        score_lists = _score_lists_by_policy(episode_results)
+        scores = {
+            entry.policy_version_id: (
+                max(score_lists.get(entry.policy_version_id, []))
+                if score_lists.get(entry.policy_version_id) else 0.0
+            )
+            for entry in entries
+        }
+        ranked_counts = {
+            entry.policy_version_id: len(score_lists.get(entry.policy_version_id, [])) for entry in entries
+        }
+        return scores, ranked_counts
+
+    # NOTE (2026-07-11): the per-round RoundComplete now carries the HONEST round score (best episode
+    # this round) — we no longer overwrite it with a cross-round peak here (that broke round isolation:
+    # every round row got stamped with the all-time peak, so the Rankings/Winners tabs showed a number
+    # that didn't match the round's own episodes). The ALL-TIME-HIGH standing is produced ONLY by
+    # rank_division below (the correct channel — a cross-round aggregate over these honest per-round
+    # scores). So: round result = best of this round's episodes; standing = best round ever.
 
     # ── ALL-TIME-HIGH STANDING via rank_division (the scheduling-refresh path) ─────────────────
     # The platform ALSO refreshes the board from rank_division on the scheduling pass (pipeline.py
