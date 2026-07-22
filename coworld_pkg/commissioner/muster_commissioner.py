@@ -166,51 +166,10 @@ class MusterCommissioner(RulesetStrategyCommissioner):
                 start += size
         return CommissionerScheduleEpisodes(episodes=episodes)
 
-    # ── ALL-TIME-HIGH at ROUND COMPLETION (the standing the platform ACTUALLY serves) ──────────
-    # VERIFIED live 2026-07-09 (the hard way): the division standing the Observatory shows is written
-    # at ROUND COMPLETION from RoundComplete → the backend persists it to division.leaderboard_config
-    # (app_backend pipeline.py L2464, from `complete.leaderboards`, which its compat shim derives from
-    # RoundComplete.results when an older commissioner sends only `results`). That per-round board
-    # OVERWRITES the peak board rank_division writes on the separate scheduling-refresh path — so
-    # overriding rank_division ALONE left the live board showing the latest round's scores, not peaks
-    # (musterd's real 10.5M peak displayed as its 0.66M latest round). To make the standing a pinball
-    # HIGH SCORE we must ALSO make the round-completion `results` carry each policy's PEAK.
-    #
-    # Implementation: let the base build the RoundComplete (handles per-round scoring, memberships,
-    # the on_round_completed hook), then REPLACE each ranking's score with that policy's MAX over the
-    # full history the platform ships us — round_start.recent_results (the last ≤50 completed rounds,
-    # pipeline.py L2659) PLUS this round's own just-computed scores — and re-rank. The compat shim then
-    # derives a PEAK leaderboards from these results. recent_results carries no result_metadata, so we
-    # peak on raw score across all Muster rounds (single scoring scheme — no scale-mixing risk here).
-    def complete_round_for_round_start(self, round_start, episode_results,
-                                       scheduled_episodes=None, failed_episodes=None):
-        complete = super().complete_round_for_round_start(
-            round_start, episode_results, scheduled_episodes, failed_episodes)
-        # Peak per policy over prior history (recent_results) + this round's own results.
-        peak: dict = {}
-        def _bump(pid, score):
-            if pid is not None and score is not None and (pid not in peak or score > peak[pid]):
-                peak[pid] = score
-        for r in getattr(round_start, "recent_results", None) or []:
-            _bump(r.policy_version_id, r.score)
-        for div_ranking in complete.results:
-            for entry in div_ranking.rankings:
-                _bump(entry.policy_version_id, entry.score)
-        # Rewrite each ranking to its peak, then re-rank within each division (stable tie-break).
-        for div_ranking in complete.results:
-            for entry in div_ranking.rankings:
-                if entry.policy_version_id in peak:
-                    entry.score = peak[entry.policy_version_id]
-            div_ranking.rankings.sort(key=lambda e: (-e.score, str(e.player_id or ""), str(e.policy_version_id)))
-            for i, entry in enumerate(div_ranking.rankings, start=1):
-                entry.rank = i
-        return complete
-
-    # ── ALL-TIME-HIGH STANDING via rank_division (the scheduling-refresh path) ─────────────────
-    # The platform ALSO refreshes the board from rank_division on the scheduling pass (pipeline.py
-    # L493, over the full completed-round history). We override it too so BOTH writers agree on the
-    # peak — otherwise whichever ran last would flip the board between peak and per-round. Same peak
-    # logic as complete_round_for_round_start above, over the richer ctx.round_results (with metadata).
+    # ── ALL-TIME-HIGH STANDING via rank_division ──────────────────────────────────────────────
+    # The platform persists this cumulative board separately from RoundComplete.results. Keep the
+    # base round-completion method untouched so every RoundResult remains evidence from that round;
+    # rewriting those rows to historical peaks makes distinct rounds appear to have identical scores.
     def rank_division(self, ctx) -> list:
         base = super().rank_division(ctx)
         if not base:

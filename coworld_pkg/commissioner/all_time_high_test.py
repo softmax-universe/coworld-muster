@@ -1,10 +1,15 @@
-"""Self-check for MusterCommissioner's ALL-TIME-HIGH standing (`rank_division` override).
+"""Self-check for Muster's separate per-round scoring and ALL-TIME-HIGH standing.
 
 THE STANDING IS WHATEVER `rank_division` RETURNS. At round completion the platform calls it once
 and persists exactly what it returns to `division.leaderboard_config`; every leaderboard read serves
 that saved copy (app_backend v2/pipeline.py ranks-and-persists, v2/leaderboards.py serves it, no
 recompute). MusterCommissioner overrides `rank_division` to rank each policy by its BEST round score
 ever (a pinball high score you keep) instead of the base's decaying half-life-weighted mean.
+
+Round completion must remain inherited from RulesetStrategyCommissioner. The platform persists its
+fresh per-round results as RoundResult rows, then calls `rank_division` separately and persists that
+cumulative response as the standings board. Overriding round completion to inject peaks corrupts the
+round evidence and makes later rounds repeat the same historical score vector.
 
 This proves the override against the REAL framework: a policy whose PEAK was an EARLY round (low
 recent rounds) still ranks #1 at its peak — the exact case the base EWMA gets wrong (the live league
@@ -43,6 +48,9 @@ from commissioners.common.models import (  # noqa: E402
 def main() -> int:
     c = get_commissioner("muster")
     assert "rank_division" in type(c).__dict__, "MusterCommissioner must override rank_division"
+    assert "complete_round_for_round_start" not in type(c).__dict__, (
+        "round completion must stay inherited so RoundResult rows contain fresh per-round scores"
+    )
 
     p_soft, p_must = "ply_soft", "ply_must"
     div_id, league_id = uuid4(), uuid4()
@@ -83,7 +91,7 @@ def main() -> int:
     assert board[0].player_name == "softmaxwell", "peak (271400) must rank #1 despite low recent rounds"
     assert board[0].score == 271400, f"#1 standing must be the peak 271400, got {board[0].score}"
     assert board[1].score == 110000, f"#2 standing must be musterd's peak 110000, got {board[1].score}"
-    print("PASS: all-time-high standing — peak wins, never decays, ranks correctly.")
+    print("PASS: round results stay fresh; all-time-high standing stays cumulative.")
     return 0
 
 
