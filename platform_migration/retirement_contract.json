@@ -1,0 +1,15 @@
+{
+  "phase": "rollback_ready",
+  "authoritative_repo": "Metta-AI/muster",
+  "authoritative_source": "coworld_pkg/commissioner/muster_commissioner.py",
+  "authoritative_config": "coworld_pkg/muster-commissioner.yaml",
+  "required_rollback_paths": [
+    "Dockerfile",
+    "muster-commissioner.yaml",
+    "coworld_pkg/commissioner/muster_commissioner.py",
+    "coworld_pkg/commissioner/round_max_test.py",
+    "coworld_pkg/commissioner/all_time_high_test.py"
+  ],
+  "source_sha256": "877708493cb8ec3f775796da1fbbbbab16c9c1ffc86191dfae9cb549e7761129",
+  "config_sha256": "2263bc96dd73dc60df979c9e31bb5cc758a9f184f014b30bdc5175773ef5b566"
+}

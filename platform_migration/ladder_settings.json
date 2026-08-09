@@ -1,0 +1,37 @@
+{
+  "round_interval_minutes": 15,
+  "ladder": {
+    "enabled": false,
+    "scheduler": {
+      "strategy": "scaling_roster",
+      "insufficient_players": "do_not_run",
+      "seat_rungs": [2, 4, 8, 16, 32, 64],
+      "episodes_per_round": 3,
+      "roster_overflow": "partition",
+      "overflow_episodes_per_table": 1,
+      "variant_rotation_by_seat_count": {
+        "2": ["competition"],
+        "4": ["competition"],
+        "8": ["competition"],
+        "16": ["competition"],
+        "32": ["competition"],
+        "64": ["competition"]
+      }
+    },
+    "fulfillment": {"allowed_failures": 0.05, "retry_times": 2},
+    "ranking": {
+      "algorithm": "score",
+      "direction": "maximize",
+      "round_scoring_rule": "max",
+      "standing_aggregation": "max",
+      "initial_standing": 0.0
+    },
+    "divisions": [
+      {
+        "division_id": "div_26f94a2e-a2db-4003-8161-da4e2cb28fe9",
+        "name": "Competition",
+        "disqualify_after_consecutive_failures": 3
+      }
+    ]
+  }
+}
