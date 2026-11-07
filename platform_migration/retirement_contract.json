@@ -1,6 +1,6 @@
 {
   "phase": "rollback_ready",
-  "authoritative_repo": "Metta-AI/muster",
+  "authoritative_repo": "softmax-universe/muster",
   "authoritative_source": "coworld_pkg/commissioner/muster_commissioner.py",
   "authoritative_config": "coworld_pkg/muster-commissioner.yaml",
   "required_rollback_paths": [
