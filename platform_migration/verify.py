@@ -26,7 +26,7 @@ class RetirementContract:
     @classmethod
     def load(cls) -> RetirementContract:
         value = json.loads((HERE / "retirement_contract.json").read_text())
-        assert value.pop("authoritative_repo") == "Metta-AI/muster"
+        assert value.pop("authoritative_repo") == "softmax-universe/muster"
         return cls(**value)
 
 

@@ -5,7 +5,7 @@ Public **source mirror** of the league commissioner for the **Muster** coworld
 
 This repository exists so Muster's coworld manifest can declare a **public**
 `commissioner.source_url` that the hosted certifier can resolve. The Muster game
-engine and RL/LM policy source live in the private `Metta-AI/muster` repo; only
+engine and RL/LM policy source live in the private `softmax-universe/muster` repo; only
 the commissioner — which already ships as a public running image — is mirrored here.
 
 - `coworld_pkg/commissioner/` — the custom `MusterCommissioner`
@@ -14,4 +14,4 @@ the commissioner — which already ships as a public running image — is mirror
 - `Dockerfile` — builds the commissioner image (upstream `commissioners-default`
   base + the baked `muster-commissioner.yaml`).
 
-Authoritative source: `Metta-AI/muster` `coworld_pkg/commissioner/`.
+Authoritative source: `softmax-universe/muster` `coworld_pkg/commissioner/`.

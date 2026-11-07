@@ -1,7 +1,7 @@
 # Platform commissioner migration
 
 This repository is the public source mirror for Muster's container commissioner.
-The authoritative migration design lives in the private `Metta-AI/muster`
+The authoritative migration design lives in the private `softmax-universe/muster`
 repository. The live league is `league_d0f34381-669e-4f6a-9e7a-28ab16ce42e3`;
 Competition is `div_26f94a2e-a2db-4003-8161-da4e2cb28fe9`.
 
